@@ -111,7 +111,7 @@ MIT License
 
 ## Authors
 
-Guinslym Mondésir
+Guinsly Mondésir
 
 ## Maintained by
 
@@ -127,7 +127,7 @@ If you use this package in your research, please cite:
 
 ```bibtex
 @software{sp_ask_school_data_crunching,
-  author = {Mondésir, Guinslym},
+  author = {Mondésir, Guinsly},
   title = {SP Ask School Data Crunching},
   year = {2024},
   publisher = {Scholars Portal},

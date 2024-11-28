@@ -889,217 +889,243 @@ class SchoolChatAnalytics:
 
     def generate_chord_diagram(self):
         """Generate chord diagram showing chat flow between schools"""
-        school_name = self.school_info['school']['full_name'].replace(' ', '_')
-        
-        # Create flow data
-        flow_data = []
-        skipped_chats = 0
-        
-        # Get all schools from sp_ask_school_dict
-        schools = [item['school']['short_name'] for item in sp_ask_school_dict]
-        
-        print("Analyzing chat flows...")
-        
-        # For each operator's school, count how many chats they handled from each queue's school
-        for operator_chat in self.df.itertuples():
-            try:
-                # Skip if no operator
-                if pd.isna(operator_chat.operator) or not operator_chat.operator:
-                    skipped_chats += 1
-                    continue
-                    
-                # Get operator's school
-                operator_school = find_school_by_operator_suffix(operator_chat.operator)
-                if not operator_school or operator_school == "Unknown":
-                    skipped_chats += 1
-                    continue
-                    
-                # Get queue's school
-                queue_school = find_school_by_queue_or_profile_name(operator_chat.queue)
-                if not queue_school or queue_school == "Unknown":
-                    skipped_chats += 1
-                    continue
-                    
-                # Add to flow data
-                flow_data.append({
-                    "from": queue_school,
-                    "to": operator_school,
-                    "value": 1
-                })
-                
-            except Exception as e:
-                print(f"Error processing chat: {str(e)}")
-                skipped_chats += 1
-                continue
-        
-        if not flow_data:
-            print("No valid chat flow data found!")
-            return None
+        try:
+            school_name = self.school_info['school']['full_name'].replace(' ', '_')
             
-        print(f"Processed {len(flow_data)} chats (skipped {skipped_chats} chats)")
-        
-        # Aggregate the flow data
-        flow_df = pd.DataFrame(flow_data)
-        flow_counts = (flow_df.groupby(['from', 'to'])
-                    .size()
-                    .reset_index(name='value'))
-        
-        # Convert to list of dicts for the JavaScript format
-        flow_list = flow_counts.to_dict('records')
-        
-        print(f"Generated {len(flow_list)} flow connections")
-        
-        # Create the HTML file with embedded JavaScript
-        html_content = f"""
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <title>Chat Flow Diagram - {self.school_info['school']['full_name']}</title>
-            <script src="https://cdn.amcharts.com/lib/4/core.js"></script>
-            <script src="https://cdn.amcharts.com/lib/4/charts.js"></script>
-            <script src="https://cdn.amcharts.com/lib/4/themes/dark.js"></script>
-            <script src="https://cdn.amcharts.com/lib/4/themes/animated.js"></script>
-            <style>
-                body {{ 
-                    background-color: #30303d;
-                    color: white;
-                    font-family: Arial, sans-serif;
-                    margin: 0;
-                    padding: 20px;
-                }}
-                #chartdiv {{
-                    width: 100%;
-                    height: 800px;
-                }}
-                .stats {{
-                    margin-bottom: 20px;
-                    padding: 15px;
-                    background-color: rgba(255, 255, 255, 0.1);
-                    border-radius: 5px;
-                }}
-            </style>
-        </head>
-        <body>
-            <div class="stats">
-                <h2>Chat Flow Analysis</h2>
-                <p>Period: {self.start_date} to {self.end_date}</p>
-                <p>Total valid flows analyzed: {len(flow_data)}</p>
-                <p>Skipped chats: {skipped_chats}</p>
-            </div>
-            <div id="chartdiv"></div>
-            <script>
-            am4core.ready(function() {{
-                // Themes
-                am4core.useTheme(am4themes_dark);
-                am4core.useTheme(am4themes_animated);
+            # Create flow data
+            flow_data = []
+            skipped_chats = 0
+            error_details = {
+                'no_operator': 0,
+                'unknown_operator_school': 0,
+                'unknown_queue_school': 0,
+                'other_errors': 0
+            }
+            
+            print("Analyzing chat flows...")
+            
+            # Process each chat
+            for index, chat in self.df.iterrows():
+                try:
+                    # Skip if no operator
+                    if pd.isna(chat['operator']) or not chat['operator']:
+                        error_details['no_operator'] += 1
+                        skipped_chats += 1
+                        continue
+                    
+                    # Get operator's school
+                    operator_school = find_school_by_operator_suffix(chat['operator'])
+                    if not operator_school:
+                        error_details['unknown_operator_school'] += 1
+                        skipped_chats += 1
+                        continue
+                    
+                    # Get queue's school
+                    queue_school = find_school_by_queue_or_profile_name(chat['queue'])
+                    if not queue_school:
+                        error_details['unknown_queue_school'] += 1
+                        skipped_chats += 1
+                        continue
+                    
+                    # Skip "Unknown" schools
+                    if operator_school == "Unknown" or queue_school == "Unknown":
+                        error_details['unknown_queue_school'] += 1
+                        skipped_chats += 1
+                        continue
+                    
+                    # Add to flow data
+                    flow_data.append({
+                        "from": str(queue_school),
+                        "to": str(operator_school),
+                        "value": 1
+                    })
+                    
+                except Exception as e:
+                    error_details['other_errors'] += 1
+                    skipped_chats += 1
+                    continue
+            
+            # Check if we have any valid data
+            if not flow_data:
+                print("\nNo valid chat flow data found!")
+                print("\nError Details:")
+                for error_type, count in error_details.items():
+                    print(f"{error_type}: {count}")
+                return None
+            
+            # Print processing summary
+            print(f"\nProcessing Summary:")
+            print(f"Total processed: {len(flow_data)} chats")
+            print(f"Total skipped: {skipped_chats} chats")
+            print("\nSkipped Chat Details:")
+            for error_type, count in error_details.items():
+                print(f"{error_type}: {count}")
+            
+            # Aggregate the flow data
+            flow_df = pd.DataFrame(flow_data)
+            flow_counts = (flow_df.groupby(['from', 'to'])
+                        .size()
+                        .reset_index(name='value'))
+            
+            # Convert to list of dicts
+            flow_list = flow_counts.to_dict('records')
+            
+            print(f"\nGenerated {len(flow_list)} flow connections")
+            
+            # Generate HTML file
+            html_content = f"""
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>Chat Flow Diagram - {self.school_info['school']['full_name']}</title>
+                <script src="https://cdn.amcharts.com/lib/4/core.js"></script>
+                <script src="https://cdn.amcharts.com/lib/4/charts.js"></script>
+                <script src="https://cdn.amcharts.com/lib/4/themes/dark.js"></script>
+                <script src="https://cdn.amcharts.com/lib/4/themes/animated.js"></script>
+                <style>
+                    body {{ 
+                        background-color: #30303d;
+                        color: white;
+                        font-family: Arial, sans-serif;
+                        margin: 0;
+                        padding: 20px;
+                    }}
+                    #chartdiv {{
+                        width: 100%;
+                        height: 800px;
+                    }}
+                    .stats {{
+                        margin-bottom: 20px;
+                        padding: 15px;
+                        background-color: rgba(255, 255, 255, 0.1);
+                        border-radius: 5px;
+                    }}
+                </style>
+            </head>
+            <body>
+                <div class="stats">
+                    <h2>Chat Flow Analysis</h2>
+                    <p>Period: {self.start_date} to {self.end_date}</p>
+                    <p>Total valid flows analyzed: {len(flow_data)}</p>
+                    <p>Skipped chats: {skipped_chats}</p>
+                </div>
+                <div id="chartdiv"></div>
+                <script>
+                am4core.ready(function() {{
+                    // Themes
+                    am4core.useTheme(am4themes_dark);
+                    am4core.useTheme(am4themes_animated);
 
-                // Create chart
-                var chart = am4core.create("chartdiv", am4charts.ChordDiagram);
+                    // Create chart
+                    var chart = am4core.create("chartdiv", am4charts.ChordDiagram);
 
-                // Colors
-                chart.colors.saturation = 1;
-                chart.colors.step = 9;
+                    // Colors
+                    chart.colors.saturation = 1;
+                    chart.colors.step = 9;
 
-                // Data
-                chart.data = {flow_list};
+                    // Data
+                    chart.data = {flow_list};
 
-                // Configure
-                chart.dataFields.fromName = "from";
-                chart.dataFields.toName = "to";
-                chart.dataFields.value = "value";
+                    // Configure
+                    chart.dataFields.fromName = "from";
+                    chart.dataFields.toName = "to";
+                    chart.dataFields.value = "value";
 
-                chart.nodePadding = 0.5;
-                chart.minNodeSize = 0.01;
-                chart.startAngle = 80;
-                chart.endAngle = chart.startAngle + 360;
-                chart.sortBy = "value";
-                chart.fontSize = 10;
+                    chart.nodePadding = 0.5;
+                    chart.minNodeSize = 0.01;
+                    chart.startAngle = 80;
+                    chart.endAngle = chart.startAngle + 360;
+                    chart.sortBy = "value";
+                    chart.fontSize = 10;
 
-                // Node template
-                var nodeTemplate = chart.nodes.template;
-                nodeTemplate.readerTitle = "Click to show/hide or drag to rearrange";
-                nodeTemplate.showSystemTooltip = true;
-                nodeTemplate.tooltipText = "{{name}}'s chats: {{total}}";
+                    // Node template
+                    var nodeTemplate = chart.nodes.template;
+                    nodeTemplate.readerTitle = "Click to show/hide or drag to rearrange";
+                    nodeTemplate.showSystemTooltip = true;
+                    nodeTemplate.tooltipText = "{{name}}'s chats: {{total}}";
 
-                // Label template
-                var label = nodeTemplate.label;
-                label.relativeRotation = 90;
-                label.fillOpacity = 0.4;
+                    // Label template
+                    var label = nodeTemplate.label;
+                    label.relativeRotation = 90;
+                    label.fillOpacity = 0.4;
 
-                // Hover state
-                var labelHS = label.states.create("hover");
-                labelHS.properties.fillOpacity = 1;
+                    // Hover state
+                    var labelHS = label.states.create("hover");
+                    labelHS.properties.fillOpacity = 1;
 
-                // Link template
-                var linkTemplate = chart.links.template;
-                linkTemplate.strokeOpacity = 0;
-                linkTemplate.fillOpacity = 0.15;
-                linkTemplate.tooltipText = "Chats from {{fromName}} picked up by {{toName}}: {{value.value}}";
+                    // Link template
+                    var linkTemplate = chart.links.template;
+                    linkTemplate.strokeOpacity = 0;
+                    linkTemplate.fillOpacity = 0.15;
+                    linkTemplate.tooltipText = "Chats from {{fromName}} picked up by {{toName}}: {{value.value}}";
 
-                var hoverState = linkTemplate.states.create("hover");
-                hoverState.properties.fillOpacity = 0.7;
-                hoverState.properties.strokeOpacity = 0.7;
+                    var hoverState = linkTemplate.states.create("hover");
+                    hoverState.properties.fillOpacity = 0.7;
+                    hoverState.properties.strokeOpacity = 0.7;
 
-            }}); // end am4core.ready()
-            </script>
-        </body>
-        </html>
-        """
-        
-        # Save the HTML file
-        output_file = f"{school_name}_chord_diagram.html"
-        with open(output_file, 'w', encoding='utf-8') as f:
-            f.write(html_content)
-        
-        print(f"Generated chord diagram: {output_file}")
-        
-        return flow_list
-
+                }}); // end am4core.ready()
+                </script>
+            </body>
+            </html>
+            """
+            
+            # Save the HTML file
+            output_file = f"{school_name}_chord_diagram.html"
+            with open(output_file, 'w', encoding='utf-8') as f:
+                f.write(html_content)
+            
+            print(f"Generated chord diagram: {output_file}")
+            
+            return flow_list
+            
+        except Exception as e:
+            print(f"Error in generate_chord_diagram: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return None
 def analyze_school(school_name: str, start_date: str, end_date: str, generate_report: bool = True):
-    """Analyze chat data for a specific school"""
+    """Analyze chat data for a specific school with detailed error handling"""
+    analyzer = None
     try:
+        print("\nInitializing analysis...")
         analyzer = SchoolChatAnalytics(school_name, start_date, end_date)
         
-        # Get statistics
-        stats = analyzer.advanced_statistics()
         print(f"\nAnalysis for {analyzer.school_info['school']['full_name']}")
         print("=" * 50)
         
-        for category, values in stats.items():
-            print(f"\n{category}:")
-            if isinstance(values, dict):
-                for key, value in values.items():
-                    print(f"  {key}: {value}")
-            else:
-                print(f"  {values}")
-
-        # Generate comprehensive report
-        if generate_report:
-            analyzer.generate_html_report()
-            
-        # Generate individual visualization files
-        analyzer.save_individual_visualizations()
+        # List of analysis tasks to perform
+        analysis_tasks = [
+            ("Generate HTML report", lambda: analyzer.generate_html_report() if generate_report else None),
+            ("Generate visualizations", analyzer.save_individual_visualizations),
+            ("Generate time analysis", analyzer.create_time_analysis),
+            ("Generate advanced time analysis", analyzer.create_advanced_time_analysis),
+            ("Generate chord diagram", analyzer.generate_chord_diagram)
+        ]
         
-        # Generate time analysis visualization
-        analyzer.create_time_analysis()
-
-        # Generate Advanced time analysis visualization
-        analyzer.create_advanced_time_analysis()
-
-        # Add operator location analysis
-        analyzer.analyze_operator_location()
-
-        try:
-            analyzer.generate_chord_diagram()
-        except Exception as e:
-            print(f"Error generating chord diagram: {str(e)}")
-
+        # Execute each analysis task with error handling
+        for task_name, task_func in analysis_tasks:
+            print(f"\nExecuting: {task_name}")
+            try:
+                task_func()
+            except Exception as e:
+                print(f"Error in {task_name}:")
+                print(f"Error type: {type(e).__name__}")
+                print(f"Error message: {str(e)}")
+                import traceback
+                print("\nTraceback:")
+                traceback.print_exc()
+                print("\nContinuing with remaining analyses...\n")
+        
         return analyzer
         
     except Exception as e:
-        print(f"Error during analysis: {str(e)}")
-        return None
-    
+        print("\nCritical error during analysis:")
+        print(f"Error type: {type(e).__name__}")
+        print(f"Error message: {str(e)}")
+        import traceback
+        print("\nTraceback:")
+        traceback.print_exc()
+        return analyzer  # Return analyzer even if incomplete, might be useful for debugging
 
 if __name__ == "__main__":
     # Example usage
