@@ -316,10 +316,153 @@ class SchoolChatAnalytics:
                 """)
 
 
+    def save_individual_visualizations(self):
+        """Save individual visualizations as separate HTML files"""
+        school_name = self.school_info['school']['full_name'].replace(' ', '_')
+        base_filename = f"{school_name}_{self.start_date}_to_{self.end_date}"
+        
+        # 1. Monthly Histogram
+        monthly_counts = (self.df.groupby(self.df['started'].dt.to_period('M'))
+                        .size()
+                        .reset_index())
+        monthly_counts.columns = ['Month', 'Number of Chats']
+        monthly_counts['Month'] = monthly_counts['Month'].astype(str)
+        
+        fig = px.bar(
+            monthly_counts,
+            x='Month',
+            y='Number of Chats',
+            title=f'Monthly Chat Distribution for {self.school_info["school"]["full_name"]}'
+        )
+        fig.update_layout(xaxis_tickangle=-45)
+        fig.write_html(f"{school_name}_monthly_distribution.html")
+
+        # 2. Daily Heatmap
+        hourly_by_day = pd.crosstab(self.df['day_of_week'], self.df['hour'])
+        days_order = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+        hourly_by_day = hourly_by_day.reindex(days_order)
+        
+        fig = px.imshow(
+            hourly_by_day,
+            title=f'Chat Activity Heatmap for {self.school_info["school"]["full_name"]}',
+            labels=dict(x='Hour of Day', y='Day of Week', color='Number of Chats'),
+            aspect='auto'
+        )
+        fig.write_html(f"{school_name}_heatmap.html")
+
+        # 3. Operator Analysis
+        operator_stats = self.df.groupby('operator').agg({
+            'id': 'count',
+            'duration': 'mean',
+            'wait': 'mean'
+        }).reset_index()
+        
+        fig = make_subplots(
+            rows=2, cols=1,
+            subplot_titles=(
+                'Total Chats by Operator',
+                'Average Duration by Operator (seconds)'
+            )
+        )
+        
+        fig.add_trace(
+            go.Bar(
+                x=operator_stats['operator'],
+                y=operator_stats['id'],
+                name='Total Chats'
+            ),
+            row=1, col=1
+        )
+        
+        fig.add_trace(
+            go.Bar(
+                x=operator_stats['operator'],
+                y=operator_stats['duration'],
+                name='Average Duration'
+            ),
+            row=2, col=1
+        )
+        
+        fig.update_layout(
+            height=800,
+            title_text=f'Operator Performance Analysis for {self.school_info["school"]["full_name"]}',
+            showlegend=True
+        )
+        fig.write_html(f"{school_name}_operator_analysis.html")
+
+        # 4. Seasonal Analysis
+        self.df['month_num'] = self.df['started'].dt.month
+        self.df['year'] = self.df['started'].dt.year
+        
+        monthly_trends = self.df.groupby(['year', 'month_num'])['id'].count().reset_index()
+        
+        fig = go.Figure()
+        
+        for year in monthly_trends['year'].unique():
+            year_data = monthly_trends[monthly_trends['year'] == year]
+            fig.add_trace(
+                go.Scatter(
+                    x=year_data['month_num'],
+                    y=year_data['id'],
+                    name=str(year),
+                    mode='lines+markers'
+                )
+            )
+        
+        fig.update_layout(
+            title=f'Seasonal Chat Patterns by Year for {self.school_info["school"]["full_name"]}',
+            xaxis_title='Month',
+            yaxis_title='Number of Chats',
+            xaxis=dict(
+                tickmode='array',
+                ticktext=['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                        'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
+                tickvals=list(range(1, 13))
+            )
+        )
+        fig.write_html(f"{school_name}_seasonal_analysis.html")
+
+        # 5. Create Dashboard
+        dashboard = make_subplots(
+            rows=3, cols=1,
+            subplot_titles=(
+                'Monthly Distribution',
+                'Daily Heatmap',
+                'Operator Performance'
+            ),
+            vertical_spacing=0.1,
+            specs=[[{"type": "bar"}],
+                [{"type": "heatmap"}],
+                [{"type": "bar"}]]
+        )
+        
+        # Add all plots to dashboard
+        dashboard.add_trace(fig.data[0], row=1, col=1)  # Monthly distribution
+        dashboard.add_trace(go.Heatmap(
+            z=hourly_by_day.values,
+            x=hourly_by_day.columns,
+            y=hourly_by_day.index,
+            colorscale='Blues'
+        ), row=2, col=1)
+        dashboard.add_trace(go.Bar(
+            x=operator_stats['operator'],
+            y=operator_stats['id']
+        ), row=3, col=1)
+        
+        dashboard.update_layout(
+            height=1500,
+            title_text=f'Chat Analysis Dashboard for {self.school_info["school"]["full_name"]}'
+        )
+        dashboard.write_html(f"{school_name}_dashboard.html")
+
+        print(f"Generated visualization files for {self.school_info['school']['full_name']}:")
+        print(f"1. {school_name}_monthly_distribution.html")
+        print(f"2. {school_name}_heatmap.html")
+        print(f"3. {school_name}_operator_analysis.html")
+        print(f"4. {school_name}_seasonal_analysis.html")
+        print(f"5. {school_name}_dashboard.html")
 
 
-
-# Add to analyze_school function:
 def analyze_school(school_name: str, start_date: str, end_date: str, generate_report: bool = True):
     """Analyze chat data for a specific school"""
     try:
@@ -338,8 +481,12 @@ def analyze_school(school_name: str, start_date: str, end_date: str, generate_re
             else:
                 print(f"  {values}")
 
+        # Generate comprehensive report
         if generate_report:
             analyzer.generate_html_report()
+            
+        # Generate individual visualization files
+        analyzer.save_individual_visualizations()
         
         return analyzer
         
