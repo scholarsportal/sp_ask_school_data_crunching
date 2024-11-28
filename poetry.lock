@@ -515,6 +515,17 @@ dev = ["pre-commit", "tox"]
 testing = ["pytest", "pytest-benchmark"]
 
 [[package]]
+name = "pyenv"
+version = "0.0.1"
+description = "pyenv project placeholder package"
+category = "dev"
+optional = false
+python-versions = "*"
+files = [
+    {file = "pyenv-0.0.1.tar.gz", hash = "sha256:4c29f881b26772ada6bc5a945f1f71f7cc33c0420bb7eb1e144d8b1f2134fedb"},
+]
+
+[[package]]
 name = "pytest"
 version = "8.3.3"
 description = "pytest: simple powerful testing with Python"
@@ -794,4 +805,4 @@ zstd = ["zstandard (>=0.18.0)"]
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.10"
-content-hash = "4decb9126b67170eb825068179194c483e381d1e532bb1bf294ad382e9a67636"
+content-hash = "cdeb909467315f34ce05151c94fd09c4f4bd2ff206bba82685df03726c85e077"
