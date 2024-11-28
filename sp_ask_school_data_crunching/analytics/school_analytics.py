@@ -13,7 +13,8 @@ from sp_ask_school import (
     find_queues_from_a_school_name,
     get_shortname_by_full_school_name,
     find_school_by_queue_or_profile_name,
-    sp_ask_school_dict
+    sp_ask_school_dict,
+    find_school_by_operator_suffix,
 )
 
 
@@ -463,6 +464,597 @@ class SchoolChatAnalytics:
         print(f"5. {school_name}_dashboard.html")
 
 
+    def create_time_analysis(self):
+        """Create comprehensive time analysis visualization with four plots"""
+        school_name = self.school_info['school']['full_name'].replace(' ', '_')
+        
+        # Create figure with subplots
+        fig = make_subplots(
+            rows=2, cols=2,
+            subplot_titles=(
+                'Hourly Chat Distribution',
+                'Day of Week Distribution',
+                'Average Chat Duration by Hour',
+                'Average Wait Time by Hour'
+            ),
+            vertical_spacing=0.15,
+            horizontal_spacing=0.1
+        )
+
+        # 1. Hourly distribution
+        hourly_counts = self.df.groupby('hour')['id'].count()
+        fig.add_trace(
+            go.Bar(
+                x=hourly_counts.index, 
+                y=hourly_counts.values,
+                name='Chats per Hour',
+                marker_color='rgb(55, 83, 109)',
+                hovertemplate="Hour: %{x}:00<br>Number of Chats: %{y}<extra></extra>"
+            ),
+            row=1, col=1
+        )
+
+        # 2. Daily distribution
+        daily_counts = self.df['day_of_week'].value_counts()
+        days_order = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+        daily_counts = daily_counts.reindex(days_order)
+        fig.add_trace(
+            go.Bar(
+                x=daily_counts.index,
+                y=daily_counts.values,
+                name='Chats per Day',
+                marker_color='rgb(26, 118, 255)',
+                hovertemplate="Day: %{x}<br>Number of Chats: %{y}<extra></extra>"
+            ),
+            row=1, col=2
+        )
+
+        # 3. Duration by hour (convert to minutes)
+        hourly_duration = self.df.groupby('hour')['duration'].mean() / 60  # Convert to minutes
+        fig.add_trace(
+            go.Scatter(
+                x=hourly_duration.index,
+                y=hourly_duration.values,
+                mode='lines+markers',
+                name='Avg Duration',
+                line=dict(color='rgb(219, 64, 82)', width=2),
+                hovertemplate=(
+                    "Hour: %{x}:00<br>" +
+                    "Average Duration: %{y:.1f} minutes<extra></extra>"
+                )
+            ),
+            row=2, col=1
+        )
+
+        # 4. Wait times by hour (convert to minutes)
+        hourly_wait = self.df.groupby('hour')['wait'].mean() / 60  # Convert to minutes
+        fig.add_trace(
+            go.Scatter(
+                x=hourly_wait.index,
+                y=hourly_wait.values,
+                mode='lines+markers',
+                name='Avg Wait Time',
+                line=dict(color='rgb(0, 177, 106)', width=2),
+                hovertemplate=(
+                    "Hour: %{x}:00<br>" +
+                    "Average Wait Time: %{y:.1f} minutes<extra></extra>"
+                )
+            ),
+            row=2, col=2
+        )
+
+        # Update layout
+        fig.update_layout(
+            height=800,
+            showlegend=True,
+            title_text=f'Time Analysis for {self.school_info["school"]["full_name"]}',
+        )
+
+        # Update x-axes with hour formatting for time plots
+        fig.update_xaxes(
+            title_text="Hour of Day", 
+            ticktext=['{}:00'.format(str(i).zfill(2)) for i in range(24)],
+            tickvals=list(range(24)),
+            row=1, col=1
+        )
+        fig.update_xaxes(title_text="Day of Week", row=1, col=2)
+        fig.update_xaxes(
+            title_text="Hour of Day",
+            ticktext=['{}:00'.format(str(i).zfill(2)) for i in range(24)],
+            tickvals=list(range(24)),
+            row=2, col=1
+        )
+        fig.update_xaxes(
+            title_text="Hour of Day",
+            ticktext=['{}:00'.format(str(i).zfill(2)) for i in range(24)],
+            tickvals=list(range(24)),
+            row=2, col=2
+        )
+
+        # Update y-axes
+        fig.update_yaxes(title_text="Number of Chats", row=1, col=1)
+        fig.update_yaxes(title_text="Number of Chats", row=1, col=2)
+        fig.update_yaxes(title_text="Average Duration (minutes)", row=2, col=1)
+        fig.update_yaxes(title_text="Average Wait Time (minutes)", row=2, col=2)
+
+        # Save the figure
+        fig.write_html(f"{school_name}_time_analysis.html")
+        print(f"Generated time analysis visualization: {school_name}_time_analysis.html")
+
+    def create_advanced_time_analysis(self):
+        """Create comprehensive time analysis with additional metrics"""
+        school_name = self.school_info['school']['full_name'].replace(' ', '_')
+        
+        # Create figure with subplots
+        fig = make_subplots(
+            rows=3, cols=2,
+            subplot_titles=(
+                'Hourly Chat Volume',
+                'Response Time Distribution by Hour',
+                'Chat Duration by Day of Week',
+                'Concurrent Chats by Hour',
+                'Operator Activity Heatmap',
+                'Abandonment Rate by Hour'
+            ),
+            vertical_spacing=0.12,
+            horizontal_spacing=0.1
+        )
+
+        # 1. Hourly Chat Volume (Original plot enhanced)
+        hourly_counts = self.df.groupby('hour')['id'].count()
+        fig.add_trace(
+            go.Bar(
+                x=hourly_counts.index, 
+                y=hourly_counts.values,
+                name='Volume',
+                marker_color='rgb(55, 83, 109)',
+                hovertemplate="Hour: %{x}:00<br>Chats: %{y}<extra></extra>"
+            ),
+            row=1, col=1
+        )
+
+        # 2. Response Time Distribution
+        self.df['response_time'] = (
+            pd.to_datetime(self.df['accepted']) - 
+            pd.to_datetime(self.df['started'])
+        ).dt.total_seconds() / 60  # Convert to minutes
+        
+        hourly_response = self.df.groupby('hour')['response_time'].agg(['mean', 'std']).fillna(0)
+        
+        fig.add_trace(
+            go.Scatter(
+                x=hourly_response.index,
+                y=hourly_response['mean'],
+                mode='lines+markers',
+                name='Avg Response',
+                line=dict(color='rgb(26, 118, 255)'),
+                error_y=dict(
+                    type='data',
+                    array=hourly_response['std'],
+                    visible=True
+                ),
+                hovertemplate="Hour: %{x}:00<br>Response Time: %{y:.1f}±%{error_y.array:.1f} min<extra></extra>"
+            ),
+            row=1, col=2
+        )
+
+        # 3. Chat Duration by Day of Week
+        daily_duration = self.df.groupby('day_of_week')['duration'].agg(['mean', 'std']).reindex(
+            ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+        )
+        daily_duration['mean'] = daily_duration['mean'] / 60  # Convert to minutes
+        daily_duration['std'] = daily_duration['std'] / 60    # Convert to minutes
+        
+        fig.add_trace(
+            go.Bar(
+                x=daily_duration.index,
+                y=daily_duration['mean'],
+                error_y=dict(type='data', array=daily_duration['std']),
+                name='Duration',
+                marker_color='rgb(219, 64, 82)',
+                hovertemplate="Day: %{x}<br>Duration: %{y:.1f}±%{error_y.array:.1f} min<extra></extra>"
+            ),
+            row=2, col=1
+        )
+
+        # 4. Concurrent Chats Analysis
+        def count_concurrent(group):
+            times = []
+            counts = []
+            for _, row in group.iterrows():
+                start = pd.to_datetime(row['started'])
+                end = pd.to_datetime(row['ended'])
+                times.extend([start, end])
+                counts.extend([1, -1])
+            df_times = pd.DataFrame({'time': times, 'count': counts}).sort_values('time')
+            return df_times['count'].cumsum().max()
+
+        self.df['hour_date'] = pd.to_datetime(self.df['started']).dt.floor('h')
+        concurrent_chats = self.df.groupby('hour')['started'].apply(
+            lambda x: count_concurrent(self.df[self.df['hour'] == x.name])
+        )
+        
+        fig.add_trace(
+            go.Scatter(
+                x=concurrent_chats.index,
+                y=concurrent_chats.values,
+                mode='lines+markers',
+                name='Concurrent',
+                line=dict(color='rgb(0, 177, 106)'),
+                hovertemplate="Hour: %{x}:00<br>Max Concurrent: %{y}<extra></extra>"
+            ),
+            row=2, col=2
+        )
+
+        # 5. Operator Activity Heatmap
+        operator_hourly = pd.crosstab(
+            self.df['operator'],
+            self.df['hour']
+        )
+        
+        fig.add_trace(
+            go.Heatmap(
+                z=operator_hourly.values,
+                x=operator_hourly.columns,
+                y=operator_hourly.index,
+                colorscale='Viridis',
+                name='Activity',
+                hovertemplate="Hour: %{x}:00<br>Operator: %{y}<br>Chats: %{z}<extra></extra>"
+            ),
+            row=3, col=1
+        )
+
+        # 6. Abandonment Rate Analysis
+        self.df['abandoned'] = self.df['accepted'].isna()
+        hourly_abandonment = (
+            self.df.groupby('hour')['abandoned']
+            .agg(['sum', 'count'])
+            .assign(rate=lambda x: (x['sum'] / x['count']) * 100)
+        )
+        
+        fig.add_trace(
+            go.Scatter(
+                x=hourly_abandonment.index,
+                y=hourly_abandonment['rate'],
+                mode='lines+markers',
+                name='Abandonment',
+                line=dict(color='rgb(255, 127, 14)'),
+                hovertemplate="Hour: %{x}:00<br>Abandonment Rate: %{y:.1f}%<extra></extra>"
+            ),
+            row=3, col=2
+        )
+
+        # Update layout and axes
+        fig.update_layout(
+            height=1200,
+            showlegend=True,
+            title_text=f'Advanced Time Analysis for {self.school_info["school"]["full_name"]}',
+        )
+
+        # Update x-axes
+        for row, col in [(1,1), (1,2), (2,2), (3,2)]:
+            fig.update_xaxes(
+                title_text="Hour of Day",
+                ticktext=['{}:00'.format(str(i).zfill(2)) for i in range(24)],
+                tickvals=list(range(24)),
+                row=row, col=col
+            )
+
+        # Update specific axis titles
+        fig.update_yaxes(title_text="Number of Chats", row=1, col=1)
+        fig.update_yaxes(title_text="Response Time (minutes)", row=1, col=2)
+        fig.update_yaxes(title_text="Average Duration (minutes)", row=2, col=1)
+        fig.update_yaxes(title_text="Concurrent Chats", row=2, col=2)
+        fig.update_yaxes(title_text="Operator", row=3, col=1)
+        fig.update_yaxes(title_text="Abandonment Rate (%)", row=3, col=2)
+
+        # Save the figure
+        fig.write_html(f"{school_name}_advanced_time_analysis.html")
+        print(f"Generated advanced time analysis: {school_name}_advanced_time_analysis.html")
+
+    def analyze_operator_location(self):
+        """Analyze local vs non-local operator distribution by hour"""
+        school_name = self.school_info['school']['full_name'].replace(' ', '_')
+        
+        # Add operator location analysis to dataframe
+        def is_local_operator(row):
+            if pd.isna(row['operator']):
+                return None
+            operator_school = find_school_by_operator_suffix(row['operator'])
+            return operator_school.lower() == self.school_info['school']['short_name'].lower()
+        
+        # Add local operator flag
+        self.df['is_local'] = self.df.apply(is_local_operator, axis=1)
+        
+        # Group by hour and operator type
+        hourly_stats = (self.df[self.df['operator'].notna()]
+                    .groupby(['hour', 'is_local'])
+                    .size()
+                    .unstack(fill_value=0))
+        
+        # Rename columns for clarity
+        hourly_stats.columns = ['Non-Local Operators', 'Local Operators']
+        
+        # Calculate percentages
+        hourly_percentages = hourly_stats.div(hourly_stats.sum(axis=1), axis=0) * 100
+        
+        # Create subplots
+        fig = make_subplots(
+            rows=2, cols=1,
+            subplot_titles=(
+                'Absolute Numbers of Chats by Operator Location',
+                'Percentage Distribution of Operator Location'
+            ),
+            vertical_spacing=0.15
+        )
+        
+        # Add absolute numbers
+        fig.add_trace(
+            go.Bar(
+                name='Local Operators',
+                x=hourly_stats.index,
+                y=hourly_stats['Local Operators'],
+                marker_color='rgb(55, 83, 109)',
+                hovertemplate=(
+                    "Hour: %{x}:00<br>" +
+                    "Local Operator Chats: %{y}<br>" +
+                    "<extra></extra>"
+                )
+            ),
+            row=1, col=1
+        )
+        
+        fig.add_trace(
+            go.Bar(
+                name='Non-Local Operators',
+                x=hourly_stats.index,
+                y=hourly_stats['Non-Local Operators'],
+                marker_color='rgb(26, 118, 255)',
+                hovertemplate=(
+                    "Hour: %{x}:00<br>" +
+                    "Non-Local Operator Chats: %{y}<br>" +
+                    "<extra></extra>"
+                )
+            ),
+            row=1, col=1
+        )
+        
+        # Add percentages
+        fig.add_trace(
+            go.Bar(
+                name='Local Operators %',
+                x=hourly_percentages.index,
+                y=hourly_percentages['Local Operators'],
+                marker_color='rgb(55, 83, 109)',
+                hovertemplate=(
+                    "Hour: %{x}:00<br>" +
+                    "Local Operator: %{y:.1f}%<br>" +
+                    "<extra></extra>"
+                )
+            ),
+            row=2, col=1
+        )
+        
+        fig.add_trace(
+            go.Bar(
+                name='Non-Local Operators %',
+                x=hourly_percentages.index,
+                y=hourly_percentages['Non-Local Operators'],
+                marker_color='rgb(26, 118, 255)',
+                hovertemplate=(
+                    "Hour: %{x}:00<br>" +
+                    "Non-Local Operator: %{y:.1f}%<br>" +
+                    "<extra></extra>"
+                )
+            ),
+            row=2, col=1
+        )
+        
+        # Update layout
+        fig.update_layout(
+            barmode='stack',
+            height=800,
+            title_text=f'Local vs Non-Local Operator Analysis for {self.school_info["school"]["full_name"]}',
+            showlegend=True
+        )
+        
+        # Update axes
+        for row in [1, 2]:
+            fig.update_xaxes(
+                title_text="Hour of Day",
+                ticktext=['{}:00'.format(str(i).zfill(2)) for i in range(24)],
+                tickvals=list(range(24)),
+                row=row, col=1
+            )
+        
+        fig.update_yaxes(title_text="Number of Chats", row=1, col=1)
+        fig.update_yaxes(title_text="Percentage of Chats", row=2, col=1)
+        
+        # Save the visualization
+        fig.write_html(f"{school_name}_operator_location_analysis.html")
+        print(f"Generated operator location analysis: {school_name}_operator_location_analysis.html")
+        
+        # Print summary statistics
+        total_chats = len(self.df[self.df['operator'].notna()])
+        local_chats = self.df['is_local'].sum()
+        local_percentage = (local_chats / total_chats) * 100
+        
+        print("\nOperator Location Summary:")
+        print(f"Total answered chats: {total_chats}")
+        print(f"Chats answered by local operators: {local_chats} ({local_percentage:.1f}%)")
+        print(f"Chats answered by non-local operators: {total_chats - local_chats} ({100 - local_percentage:.1f}%)")
+        
+        return hourly_stats, hourly_percentages
+
+
+    def generate_chord_diagram(self):
+        """Generate chord diagram showing chat flow between schools"""
+        school_name = self.school_info['school']['full_name'].replace(' ', '_')
+        
+        # Create flow data
+        flow_data = []
+        skipped_chats = 0
+        
+        # Get all schools from sp_ask_school_dict
+        schools = [item['school']['short_name'] for item in sp_ask_school_dict]
+        
+        print("Analyzing chat flows...")
+        
+        # For each operator's school, count how many chats they handled from each queue's school
+        for operator_chat in self.df.itertuples():
+            try:
+                # Skip if no operator
+                if pd.isna(operator_chat.operator) or not operator_chat.operator:
+                    skipped_chats += 1
+                    continue
+                    
+                # Get operator's school
+                operator_school = find_school_by_operator_suffix(operator_chat.operator)
+                if not operator_school or operator_school == "Unknown":
+                    skipped_chats += 1
+                    continue
+                    
+                # Get queue's school
+                queue_school = find_school_by_queue_or_profile_name(operator_chat.queue)
+                if not queue_school or queue_school == "Unknown":
+                    skipped_chats += 1
+                    continue
+                    
+                # Add to flow data
+                flow_data.append({
+                    "from": queue_school,
+                    "to": operator_school,
+                    "value": 1
+                })
+                
+            except Exception as e:
+                print(f"Error processing chat: {str(e)}")
+                skipped_chats += 1
+                continue
+        
+        if not flow_data:
+            print("No valid chat flow data found!")
+            return None
+            
+        print(f"Processed {len(flow_data)} chats (skipped {skipped_chats} chats)")
+        
+        # Aggregate the flow data
+        flow_df = pd.DataFrame(flow_data)
+        flow_counts = (flow_df.groupby(['from', 'to'])
+                    .size()
+                    .reset_index(name='value'))
+        
+        # Convert to list of dicts for the JavaScript format
+        flow_list = flow_counts.to_dict('records')
+        
+        print(f"Generated {len(flow_list)} flow connections")
+        
+        # Create the HTML file with embedded JavaScript
+        html_content = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Chat Flow Diagram - {self.school_info['school']['full_name']}</title>
+            <script src="https://cdn.amcharts.com/lib/4/core.js"></script>
+            <script src="https://cdn.amcharts.com/lib/4/charts.js"></script>
+            <script src="https://cdn.amcharts.com/lib/4/themes/dark.js"></script>
+            <script src="https://cdn.amcharts.com/lib/4/themes/animated.js"></script>
+            <style>
+                body {{ 
+                    background-color: #30303d;
+                    color: white;
+                    font-family: Arial, sans-serif;
+                    margin: 0;
+                    padding: 20px;
+                }}
+                #chartdiv {{
+                    width: 100%;
+                    height: 800px;
+                }}
+                .stats {{
+                    margin-bottom: 20px;
+                    padding: 15px;
+                    background-color: rgba(255, 255, 255, 0.1);
+                    border-radius: 5px;
+                }}
+            </style>
+        </head>
+        <body>
+            <div class="stats">
+                <h2>Chat Flow Analysis</h2>
+                <p>Period: {self.start_date} to {self.end_date}</p>
+                <p>Total valid flows analyzed: {len(flow_data)}</p>
+                <p>Skipped chats: {skipped_chats}</p>
+            </div>
+            <div id="chartdiv"></div>
+            <script>
+            am4core.ready(function() {{
+                // Themes
+                am4core.useTheme(am4themes_dark);
+                am4core.useTheme(am4themes_animated);
+
+                // Create chart
+                var chart = am4core.create("chartdiv", am4charts.ChordDiagram);
+
+                // Colors
+                chart.colors.saturation = 1;
+                chart.colors.step = 9;
+
+                // Data
+                chart.data = {flow_list};
+
+                // Configure
+                chart.dataFields.fromName = "from";
+                chart.dataFields.toName = "to";
+                chart.dataFields.value = "value";
+
+                chart.nodePadding = 0.5;
+                chart.minNodeSize = 0.01;
+                chart.startAngle = 80;
+                chart.endAngle = chart.startAngle + 360;
+                chart.sortBy = "value";
+                chart.fontSize = 10;
+
+                // Node template
+                var nodeTemplate = chart.nodes.template;
+                nodeTemplate.readerTitle = "Click to show/hide or drag to rearrange";
+                nodeTemplate.showSystemTooltip = true;
+                nodeTemplate.tooltipText = "{{name}}'s chats: {{total}}";
+
+                // Label template
+                var label = nodeTemplate.label;
+                label.relativeRotation = 90;
+                label.fillOpacity = 0.4;
+
+                // Hover state
+                var labelHS = label.states.create("hover");
+                labelHS.properties.fillOpacity = 1;
+
+                // Link template
+                var linkTemplate = chart.links.template;
+                linkTemplate.strokeOpacity = 0;
+                linkTemplate.fillOpacity = 0.15;
+                linkTemplate.tooltipText = "Chats from {{fromName}} picked up by {{toName}}: {{value.value}}";
+
+                var hoverState = linkTemplate.states.create("hover");
+                hoverState.properties.fillOpacity = 0.7;
+                hoverState.properties.strokeOpacity = 0.7;
+
+            }}); // end am4core.ready()
+            </script>
+        </body>
+        </html>
+        """
+        
+        # Save the HTML file
+        output_file = f"{school_name}_chord_diagram.html"
+        with open(output_file, 'w', encoding='utf-8') as f:
+            f.write(html_content)
+        
+        print(f"Generated chord diagram: {output_file}")
+        
+        return flow_list
+
 def analyze_school(school_name: str, start_date: str, end_date: str, generate_report: bool = True):
     """Analyze chat data for a specific school"""
     try:
@@ -488,6 +1080,20 @@ def analyze_school(school_name: str, start_date: str, end_date: str, generate_re
         # Generate individual visualization files
         analyzer.save_individual_visualizations()
         
+        # Generate time analysis visualization
+        analyzer.create_time_analysis()
+
+        # Generate Advanced time analysis visualization
+        analyzer.create_advanced_time_analysis()
+
+        # Add operator location analysis
+        analyzer.analyze_operator_location()
+
+        try:
+            analyzer.generate_chord_diagram()
+        except Exception as e:
+            print(f"Error generating chord diagram: {str(e)}")
+
         return analyzer
         
     except Exception as e:
