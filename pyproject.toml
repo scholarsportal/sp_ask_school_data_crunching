@@ -12,13 +12,17 @@ python = "^3.10"
 lh3api = "^0.2.0"
 sp-ask-school = "^0.3.9"
 sp-lh3-constant-contact = "^0.1.6"
-sp-ask-list-of-concurrent-chats = "^0.1.2"
 sp-ask-report-chats-per-school = "^0.1.4"
 sp-ask-chats-utils = "^0.1.2"
+python-dotenv = "^1.0.1"
+pandas = "^2.2.3"
+plotly = "^5.24.1"
 
 [tool.poetry.group.dev.dependencies]
 black = "^24.10.0"
 pytest-sugar = "^1.0.0"
+ipython = "^8.29.0"
+ptpython = "^3.0.29"
 
 [build-system]
 requires = ["poetry-core"]
@@ -32,3 +36,6 @@ include = '\.pyi?$'
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
+
+[tool.poetry.scripts]
+shell = "ptpython:main"  # or "IPython:start_ipython"

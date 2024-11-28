@@ -1,10 +1,8 @@
-
-
-
 from datetime import datetime, timedelta
 import lh3.api
+from typing import List, Dict, Any
 
-def get_chats_between_dates(start_date: str, end_date: str):
+def get_chats_between_dates(start_date: str, end_date: str) -> List[Dict[Any, Any]]:
     """
     Get chats between two dates using LibraryH3lp API
     
@@ -44,17 +42,8 @@ def get_chats_between_dates(start_date: str, end_date: str):
     print(f"\nTotal chats fetched: {len(all_chats)}")
     return all_chats
 
-# Example usage
 if __name__ == "__main__":
+    # Example usage when running script directly
     chats = get_chats_between_dates("2016-11-25", "2024-12-01")
-    
-    # Example analysis
-    ended_chats = [chat for chat in chats if chat['ended']]
-    accepted_chats = [chat for chat in chats if chat['accepted']]
-    
     print(f"\nAnalysis:")
     print(f"Total chats: {len(chats)}")
-    print(f"Ended chats: {len(ended_chats)}")
-    print(f"Accepted chats: {len(accepted_chats)}")
-
-    
