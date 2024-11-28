@@ -10,13 +10,12 @@ from scipy import stats
 from sp_ask_school import (
     sp_ask_school_dict,
     find_school_by_operator_suffix,
-    find_school_by_queue_or_profile_name
+    find_school_by_queue_or_profile_name,
+    FRENCH_QUEUES,
+    SMS_QUEUES
 )
-from .school_analytics import SchoolChatAnalytics
 
 class ServiceAnalytics:
-    """Analyze chat service across all institutions"""
-    
     def __init__(self, start_date: str, end_date: str):
         """
         Initialize service-wide analytics
@@ -28,7 +27,9 @@ class ServiceAnalytics:
         self.start_date = start_date
         self.end_date = end_date
         self.schools_data = {}  # Store individual school analyzers
+        print(f"\nInitializing service analysis for period: {start_date} to {end_date}")
         self.df = self._fetch_all_data()
+        self._prepare_data()
         
     def _fetch_all_data(self) -> pd.DataFrame:
         """Fetch chat data for all schools"""
@@ -56,199 +57,271 @@ class ServiceAnalytics:
                 print(f"Error fetching data for {current_date.date()}: {str(e)}")
                 
             current_date += timedelta(days=1)
-            
+        
+        print(f"Total chats fetched: {len(all_chats)}")
         return pd.DataFrame(all_chats)
     
+    def _prepare_data(self):
+        """Prepare data for analysis"""
+        # Convert timestamps
+        self.df['started'] = pd.to_datetime(self.df['started'])
+        self.df['ended'] = pd.to_datetime(self.df['ended'])
+        self.df['accepted'] = pd.to_datetime(self.df['accepted'])
+        
+        # Add derived columns
+        self.df['hour'] = self.df['started'].dt.hour
+        self.df['day_of_week'] = self.df['started'].dt.day_name()
+        self.df['month'] = self.df['started'].dt.to_period('M')
+        self.df['is_abandoned'] = self.df['accepted'].isna()
+        
+        # Add queue type flags
+        self.df['is_french'] = self.df['queue'].isin(FRENCH_QUEUES)
+        self.df['is_sms'] = self.df['queue'].isin(SMS_QUEUES)
+        
+        print("Data preparation complete.")
+
     def analyze_service_overview(self) -> Dict:
-        """Generate service-wide statistics"""
+        """Generate comprehensive service-wide statistics"""
+        # Basic service stats
+        total_duration = self.df['duration'].sum()
+        total_wait = self.df['wait'].sum()
+        
         stats = {
-            'Total Statistics': {
+            'Service Overview': {
                 'total_chats': len(self.df),
                 'unique_operators': self.df['operator'].nunique(),
-                'average_duration': self.df['duration'].mean() / 60,  # in minutes
-                'average_wait_time': self.df['wait'].mean() / 60,  # in minutes
-                'total_chat_time': self.df['duration'].sum() / 3600  # in hours
+                'total_chat_time_hours': total_duration / 3600,
+                'total_wait_time_hours': total_wait / 3600,
+                'average_duration_minutes': self.df['duration'].mean() / 60,
+                'average_wait_minutes': self.df['wait'].mean() / 60,
+                'median_duration_minutes': self.df['duration'].median() / 60,
+                'median_wait_minutes': self.df['wait'].median() / 60
+            },
+            'Service Efficiency': {
+                'chats_per_day': len(self.df) / self.df['started'].dt.date.nunique(),
+                'peak_hour': self.df.groupby(self.df['started'].dt.hour)['id'].count().idxmax(),
+                'busiest_day': self.df['started'].dt.day_name().mode()[0],
+                'abandoned_rate': (self.df['accepted'].isna().sum() / len(self.df)) * 100
+            },
+            'Queue Types': {
+                'french_chats': len(self.df[self.df['queue'].isin(FRENCH_QUEUES)]),
+                'sms_chats': len(self.df[self.df['queue'].isin(SMS_QUEUES)]),
+                'french_percentage': (len(self.df[self.df['queue'].isin(FRENCH_QUEUES)]) / len(self.df)) * 100,
+                'sms_percentage': (len(self.df[self.df['queue'].isin(SMS_QUEUES)]) / len(self.df)) * 100
             }
         }
         
-        # Add school-specific stats
-        school_stats = {}
-        for school in sp_ask_school_dict:
-            school_name = school['school']['short_name']
-            school_queues = school['school']['queues']
-            
-            school_chats = self.df[self.df['queue'].isin(school_queues)]
-            if len(school_chats) > 0:
-                school_stats[school_name] = {
-                    'total_chats': len(school_chats),
-                    'percentage_of_total': (len(school_chats) / len(self.df)) * 100,
-                    'average_duration': school_chats['duration'].mean() / 60,
-                    'average_wait_time': school_chats['wait'].mean() / 60
-                }
+        # Add monthly trends
+        monthly_counts = self.df.groupby(self.df['started'].dt.to_period('M'))['id'].count()
+        stats['Monthly Trends'] = {
+            'highest_volume_month': str(monthly_counts.idxmax()),
+            'lowest_volume_month': str(monthly_counts.idxmin()),
+            'monthly_average': monthly_counts.mean(),
+            'monthly_std': monthly_counts.std()
+        }
         
-        stats['School Statistics'] = school_stats
         return stats
-    
+
     def create_service_visualizations(self):
-        """Generate service-wide visualizations"""
-        # 1. Overall chat volume by school
-        school_volumes = []
-        for school in sp_ask_school_dict:
-            school_name = school['school']['short_name']
-            school_queues = school['school']['queues']
-            volume = len(self.df[self.df['queue'].isin(school_queues)])
-            school_volumes.append({
-                'school': school_name,
-                'chats': volume
-            })
+        """Generate enhanced service-wide visualizations"""
         
-        volume_df = pd.DataFrame(school_volumes)
-        fig_volume = px.bar(
-            volume_df,
-            x='school',
-            y='chats',
-            title='Chat Volume by Institution',
-        )
-        fig_volume.write_html("service_volume_analysis.html")
+        # 1. Monthly Trends with Queue Types
+        monthly_stats = self.df.groupby(self.df['started'].dt.to_period('M')).agg({
+            'id': 'count',
+            'duration': 'mean',
+            'wait': 'mean'
+        }).reset_index()
+        monthly_stats['started'] = monthly_stats['started'].astype(str)
         
-        # 2. Cross-institutional collaboration
-        def get_operator_school(operator):
-            if pd.isna(operator):
-                return None
-            return find_school_by_operator_suffix(operator)
-        
-        self.df['operator_school'] = self.df['operator'].apply(get_operator_school)
-        self.df['queue_school'] = self.df['queue'].apply(find_school_by_queue_or_profile_name)
-        
-        collaboration_data = (self.df[['operator_school', 'queue_school']]
-                            .value_counts()
-                            .reset_index(name='count'))
-        
-        fig_collab = px.sunburst(
-            collaboration_data,
-            path=['queue_school', 'operator_school'],
-            values='count',
-            title='Cross-institutional Chat Support'
-        )
-        fig_collab.write_html("service_collaboration_analysis.html")
-        
-        # 3. Service-wide time patterns
-        self.df['hour'] = pd.to_datetime(self.df['started']).dt.hour
-        self.df['day_of_week'] = pd.to_datetime(self.df['started']).dt.day_name()
-        
-        fig_time = make_subplots(
+        fig_monthly = make_subplots(
             rows=2, cols=1,
-            subplot_titles=('Hourly Distribution', 'Daily Distribution')
+            subplot_titles=('Monthly Chat Volume', 'Average Response Metrics'),
+            vertical_spacing=0.15
         )
         
-        hourly_counts = self.df['hour'].value_counts().sort_index()
-        fig_time.add_trace(
-            go.Bar(x=hourly_counts.index, y=hourly_counts.values, name='Hourly'),
+        fig_monthly.add_trace(
+            go.Bar(
+                x=monthly_stats['started'],
+                y=monthly_stats['id'],
+                name='Total Chats'
+            ),
             row=1, col=1
         )
         
-        daily_counts = self.df['day_of_week'].value_counts()
-        fig_time.add_trace(
-            go.Bar(x=daily_counts.index, y=daily_counts.values, name='Daily'),
+        fig_monthly.add_trace(
+            go.Scatter(
+                x=monthly_stats['started'],
+                y=monthly_stats['duration']/60,
+                name='Avg Duration (min)',
+                mode='lines+markers'
+            ),
             row=2, col=1
         )
         
-        fig_time.update_layout(height=800, title_text='Service-wide Time Patterns')
-        fig_time.write_html("service_time_analysis.html")
+        fig_monthly.add_trace(
+            go.Scatter(
+                x=monthly_stats['started'],
+                y=monthly_stats['wait']/60,
+                name='Avg Wait (min)',
+                mode='lines+markers'
+            ),
+            row=2, col=1
+        )
         
-        # 4. Combined dashboard
-        self.create_service_dashboard()
-    
-    def create_service_dashboard(self):
-        """Create a comprehensive service dashboard"""
-        stats = self.analyze_service_overview()
+        fig_monthly.update_layout(height=800, title_text='Monthly Service Patterns')
+        fig_monthly.write_html("service_monthly_analysis.html")
         
-        # Create HTML dashboard
-        html_content = f"""
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <title>Ask a Librarian Service Dashboard</title>
-            <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
-            <style>
-                body {{
-                    font-family: Arial, sans-serif;
-                    margin: 0;
-                    padding: 20px;
-                    background-color: #f5f5f5;
-                }}
-                .container {{
-                    max-width: 1200px;
-                    margin: auto;
-                }}
-                .stats-card {{
-                    background: white;
-                    padding: 20px;
-                    margin: 10px 0;
-                    border-radius: 5px;
-                    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-                }}
-                .school-grid {{
-                    display: grid;
-                    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-                    gap: 20px;
-                }}
-                .visualization {{
-                    background: white;
-                    padding: 20px;
-                    margin: 20px 0;
-                    border-radius: 5px;
-                    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-                }}
-            </style>
-        </head>
-        <body>
-            <div class="container">
-                <h1>Ask a Librarian Service Overview</h1>
-                <p>Period: {self.start_date} to {self.end_date}</p>
-                
-                <!-- Overall Statistics -->
-                <div class="stats-card">
-                    <h2>Service-wide Statistics</h2>
-                    <p>Total Chats: {stats['Total Statistics']['total_chats']:,}</p>
-                    <p>Unique Operators: {stats['Total Statistics']['unique_operators']}</p>
-                    <p>Average Duration: {stats['Total Statistics']['average_duration']:.2f} minutes</p>
-                    <p>Average Wait Time: {stats['Total Statistics']['average_wait_time']:.2f} minutes</p>
-                    <p>Total Chat Time: {stats['Total Statistics']['total_chat_time']:.2f} hours</p>
-                </div>
-                
-                <!-- School Statistics -->
-                <h2>Institution Statistics</h2>
-                <div class="school-grid">
-                    {self._generate_school_cards(stats['School Statistics'])}
-                </div>
-                
-                <!-- Visualizations -->
-                <div id="volumeChart" class="visualization"></div>
-                <div id="timeChart" class="visualization"></div>
-                <div id="collaborationChart" class="visualization"></div>
-            </div>
-        </body>
-        </html>
-        """
+        # 2. Operator Performance Distribution
+        operator_stats = self.df.groupby('operator').agg({
+            'id': 'count',
+            'duration': 'mean',
+            'wait': 'mean'
+        }).reset_index()
         
-        with open("service_dashboard.html", 'w', encoding='utf-8') as f:
-            f.write(html_content)
-    
-    def _generate_school_cards(self, school_stats: Dict) -> str:
-        """Generate HTML for school statistics cards"""
-        cards_html = ""
-        for school, stats in school_stats.items():
-            cards_html += f"""
-                <div class="stats-card">
-                    <h3>{school}</h3>
-                    <p>Total Chats: {stats['total_chats']:,}</p>
-                    <p>Percentage of Service: {stats['percentage_of_total']:.1f}%</p>
-                    <p>Average Duration: {stats['average_duration']:.2f} minutes</p>
-                    <p>Average Wait Time: {stats['average_wait_time']:.2f} minutes</p>
-                </div>
-            """
-        return cards_html
+        fig_operator = make_subplots(
+            rows=2, cols=2,
+            subplot_titles=(
+                'Chats per Operator Distribution',
+                'Average Duration Distribution',
+                'Response Time Distribution',
+                'Operator Load Distribution'
+            )
+        )
+        
+        fig_operator.add_trace(
+            go.Histogram(x=operator_stats['id'], name='Chats per Operator'),
+            row=1, col=1
+        )
+        
+        fig_operator.add_trace(
+            go.Histogram(x=operator_stats['duration']/60, name='Avg Duration (min)'),
+            row=1, col=2
+        )
+        
+        fig_operator.add_trace(
+            go.Histogram(x=operator_stats['wait']/60, name='Avg Wait (min)'),
+            row=2, col=1
+        )
+        
+        fig_operator.add_trace(
+            go.Box(y=operator_stats['id'], name='Operator Load'),
+            row=2, col=2
+        )
+        
+        fig_operator.update_layout(height=1000, title_text='Operator Performance Analysis')
+        fig_operator.write_html("service_operator_analysis.html")
+            
+
+        # 3. Queue Type Analysis
+        queue_stats = self.df.groupby('queue').agg({
+            'id': 'count',
+            'duration': 'mean',
+            'wait': 'mean'
+        }).reset_index()
+        
+        # Identify queue types
+        queue_stats['type'] = 'Regular'
+        queue_stats.loc[queue_stats['queue'].isin(FRENCH_QUEUES), 'type'] = 'French'
+        queue_stats.loc[queue_stats['queue'].isin(SMS_QUEUES), 'type'] = 'SMS'
+        
+        # Create separate figures for different chart types
+        # Pie chart for volume
+        volume_by_type = queue_stats.groupby('type')['id'].sum()
+        fig_volume = go.Figure(data=[go.Pie(
+            labels=volume_by_type.index,
+            values=volume_by_type.values,
+            title='Chat Volume by Queue Type'
+        )])
+        
+        # Create subplot for the other analyses
+        fig_queues = make_subplots(
+            rows=2, cols=2,
+            subplot_titles=(
+                'Average Duration by Queue Type',
+                'Average Wait Time by Queue Type',
+                'Queue Performance Comparison',
+                'Queue Load Distribution'
+            )
+        )
+        
+        # Add duration by type
+        duration_by_type = queue_stats.groupby('type')['duration'].mean()/60
+        fig_queues.add_trace(
+            go.Bar(
+                x=duration_by_type.index,
+                y=duration_by_type.values,
+                name='Avg Duration (min)'
+            ),
+            row=1, col=1
+        )
+        
+        # Add wait time by type
+        wait_by_type = queue_stats.groupby('type')['wait'].mean()/60
+        fig_queues.add_trace(
+            go.Bar(
+                x=wait_by_type.index,
+                y=wait_by_type.values,
+                name='Avg Wait (min)'
+            ),
+            row=1, col=2
+        )
+        
+        # Add scatter plot of duration vs wait time
+        fig_queues.add_trace(
+            go.Scatter(
+                x=queue_stats['duration']/60,
+                y=queue_stats['wait']/60,
+                mode='markers',
+                name='Queue Performance',
+                text=queue_stats['queue'],
+                marker=dict(
+                    color=queue_stats['id'],
+                    showscale=True,
+                    colorscale='Viridis',
+                    size=queue_stats['id']/10,
+                    sizeref=2.*max(queue_stats['id'])/(40.**2),
+                    sizemin=4
+                )
+            ),
+            row=2, col=1
+        )
+        
+        # Add box plots for load distribution
+        fig_queues.add_trace(
+            go.Box(
+                y=queue_stats['id'],
+                x=queue_stats['type'],
+                name='Load Distribution'
+            ),
+            row=2, col=2
+        )
+        
+        # Update layouts
+        fig_volume.update_layout(
+            title='Chat Volume Distribution',
+            height=600
+        )
+        
+        fig_queues.update_layout(
+            height=1000,
+            title_text='Queue Performance Analysis',
+            showlegend=True
+        )
+        
+        # Add axes labels
+        fig_queues.update_xaxes(title_text="Queue Type", row=1, col=1)
+        fig_queues.update_xaxes(title_text="Queue Type", row=1, col=2)
+        fig_queues.update_xaxes(title_text="Average Duration (minutes)", row=2, col=1)
+        fig_queues.update_xaxes(title_text="Queue Type", row=2, col=2)
+        
+        fig_queues.update_yaxes(title_text="Minutes", row=1, col=1)
+        fig_queues.update_yaxes(title_text="Minutes", row=1, col=2)
+        fig_queues.update_yaxes(title_text="Average Wait Time (minutes)", row=2, col=1)
+        fig_queues.update_yaxes(title_text="Number of Chats", row=2, col=2)
+        
+        # Save figures
+        fig_volume.write_html("service_queue_volume.html")
+        fig_queues.write_html("service_queue_performance.html")
 
 def analyze_service(start_date: str, end_date: str):
     """Main function to analyze entire chat service"""
