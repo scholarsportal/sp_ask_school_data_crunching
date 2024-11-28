@@ -1,10 +1,14 @@
 [tool.poetry]
 name = "sp-ask-school-data-crunching"
-version = "0.1.0"
+version = "0.1.1"
 description = "Collection of scripts for data analytics of Ask Data Through LibraryH3lp API - metadata only"
 authors = ["Guinslym <guinslym@gmail.com>"]
+homepage = "https://github.com/scholarsportal/sp-ask-school-data-crunching"
+repository = "https://github.com/scholarsportal/sp-ask-school-data-crunching"
+documentation = "https://github.com/scholarsportal/sp-ask-school-data-crunching#readme"
 license = "MIT"
 readme = "README.md"
+keywords = ["libraryh3lp", "chat", "analytics", "scholars portal", "ask a librarian", "Scholars Portal", "OCUL"]
 packages = [{include = "sp_ask_school_data_crunching"}]
 
 [tool.poetry.dependencies]
