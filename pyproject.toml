@@ -1,0 +1,25 @@
+[tool.poetry]
+name = "sp-ask-school-data-crunching"
+version = "0.1.0"
+description = "Collection of scripts for data analytics of Ask Data Through LibraryH3lp API - metadata only"
+authors = ["Guinslym <guinslym@gmail.com>"]
+license = "MIT"
+readme = "README.md"
+packages = [{include = "sp_ask_school_data_crunching"}]
+
+[tool.poetry.dependencies]
+python = "^3.10"
+lh3api = "^0.2.0"
+sp-ask-school = "^0.3.9"
+sp-lh3-constant-contact = "^0.1.6"
+sp-ask-list-of-concurrent-chats = "^0.1.2"
+sp-ask-report-chats-per-school = "^0.1.4"
+sp-ask-chats-utils = "^0.1.2"
+
+[tool.poetry.group.dev.dependencies]
+black = "^24.10.0"
+pytest-sugar = "^1.0.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
