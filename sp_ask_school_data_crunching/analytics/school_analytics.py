@@ -8,7 +8,6 @@ from plotly.subplots import make_subplots
 import lh3.api
 from typing import List, Dict, Any, Tuple
 import numpy as np
-from scipy import stats
 from sp_ask_school import (
     find_queues_from_a_school_name,
     get_shortname_by_full_school_name,
@@ -16,7 +15,49 @@ from sp_ask_school import (
     sp_ask_school_dict,
     find_school_by_operator_suffix,
 )
+from ..utils.config_helper import check_lh3_config, setup_lh3_config, ConfigurationError
 
+def calculate_correlation(x: np.ndarray, y: np.ndarray) -> Tuple[float, float]:
+    """
+    Calculate Pearson correlation coefficient and p-value using numpy
+    
+    Args:
+        x: First array of values
+        y: Second array of values
+    
+    Returns:
+        Tuple of (correlation coefficient, p-value)
+    """
+    # Remove any null values
+    mask = ~(np.isnan(x) | np.isnan(y))
+    x = x[mask]
+    y = y[mask]
+    
+    # Calculate correlation coefficient
+    n = len(x)
+    if n < 2:
+        return 0.0, 1.0
+        
+    x_mean = np.mean(x)
+    y_mean = np.mean(y)
+    
+    covariance = np.sum((x - x_mean) * (y - y_mean))
+    x_std = np.sqrt(np.sum((x - x_mean)**2))
+    y_std = np.sqrt(np.sum((y - y_mean)**2))
+    
+    if x_std == 0 or y_std == 0:
+        return 0.0, 1.0
+        
+    r = covariance / (x_std * y_std)
+    
+    # Calculate p-value (simplified version)
+    if abs(r) == 1.0:
+        p_value = 0.0
+    else:
+        t_stat = r * np.sqrt((n-2)/(1-r**2))
+        p_value = 2 * (1 - stats.t.cdf(abs(t_stat), n-2))
+    
+    return r, p_value
 
 class SchoolChatAnalytics:
     def __init__(self, school_name: str, start_date: str, end_date: str):
@@ -28,6 +69,33 @@ class SchoolChatAnalytics:
             start_date: Start date in YYYY-MM-DD format
             end_date: End date in YYYY-MM-DD format
         """
+        config_valid, message = check_lh3_config()
+        if not config_valid:
+            raise ConfigurationError(f"""
+            LibraryH3lp configuration error: {message}
+
+            Please configure lh3api first. You can do this by:
+
+            1. Creating a .lh3 directory in your home folder
+            2. Adding two files:
+            - config file with:
+                [default]
+                scheme = https
+                server = libraryh3lp.com
+                timezone = UTC
+                version = v2
+                
+            - credentials file with:
+                [default]
+                username = your_username
+                password = your_password
+
+            Or use the setup helper:
+
+            from sp_ask_school_data_crunching.utils.config_helper import setup_lh3_config
+            setup_lh3_config('your_username', 'your_password')
+            """)
+        
         self.school_name = school_name
         self.start_date = start_date
         self.end_date = end_date
@@ -60,6 +128,7 @@ class SchoolChatAnalytics:
     def _fetch_data(self) -> pd.DataFrame:
         """Fetch chat data for all school queues"""
         client = lh3.api.Client()
+        client.set_options(version = 'v1')
         
         start_dt = datetime.strptime(self.start_date, "%Y-%m-%d")
         end_dt = datetime.strptime(self.end_date, "%Y-%m-%d")
@@ -178,6 +247,15 @@ class SchoolChatAnalytics:
                     'wait_90th_percentile': float(self.df['wait'].quantile(0.9))  # Convert to float
                 }
             }
+            
+            # Add correlation analysis
+            if len(self.df) > 1:
+                correlation_coefficient, p_value = calculate_correlation(
+                    self.df['wait'].fillna(0).values,
+                    self.df['duration'].fillna(0).values
+                )
+            else:
+                correlation_coefficient = p_value = None
             
             stats_dict['Correlation Analysis'] = {
                 'wait_duration_correlation': float(correlation_coefficient) if correlation_coefficient is not None else None,

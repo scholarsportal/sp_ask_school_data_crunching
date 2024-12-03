@@ -14,6 +14,8 @@ from sp_ask_school import (
     FRENCH_QUEUES,
     SMS_QUEUES
 )
+from ..utils.config_helper import check_lh3_config, setup_lh3_config, ConfigurationError
+
 
 class ServiceAnalytics:
     def __init__(self, start_date: str, end_date: str):
@@ -24,6 +26,32 @@ class ServiceAnalytics:
             start_date: Start date in YYYY-MM-DD format
             end_date: End date in YYYY-MM-DD format
         """
+        config_valid, message = check_lh3_config()
+        if not config_valid:
+            raise ConfigurationError(f"""
+            LibraryH3lp configuration error: {message}
+
+            Please configure lh3api first. You can do this by:
+
+            1. Creating a .lh3 directory in your home folder
+            2. Adding two files:
+            - config file with:
+                [default]
+                scheme = https
+                server = libraryh3lp.com
+                timezone = UTC
+                version = v2
+                
+            - credentials file with:
+                [default]
+                username = your_username
+                password = your_password
+
+            Or use the setup helper:
+
+            from sp_ask_school_data_crunching.utils.config_helper import setup_lh3_config
+            setup_lh3_config('your_username', 'your_password')
+            """)
         self.start_date = start_date
         self.end_date = end_date
         self.schools_data = {}  # Store individual school analyzers
